@@ -1,0 +1,103 @@
+---
+title: "Analyzing and Cleaning Location Data"
+output: html_document
+---
+
+## Introduction
+
+This R Markdown document demonstrates how to analyze and clean the location variable in a dataset. We focus on identifying errors and placeholders and then improving the extraction of location information.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Data
+
+First, we load the dataset into a data frame.
+
+```{r}
+chatgptfull <- read.csv(paste0(rawFolder, "/chatgptfull.csv"))
+```
+
+## Identify Errors and Placeholders
+
+We count the occurrences of errors and placeholders in the location variable and visualize them using a pie chart.
+
+```{r}
+# Define error keywords
+error_key <- c("ERROR","NOT POSSIBLE")
+
+# Count occurrences of each keyword
+error_count <- sapply(error_key, function(key) sum(grepl(key, chatgptfull$location, fixed = TRUE)))
+
+# Calculate the number of valid entries
+valid_entries <- nrow(chatgptfull) - sum(error_count)
+
+# Combine all counts
+all_counts <- c(error_count, "Valid Entries" = valid_entries)
+
+# Define colors for the pie chart
+colors <- rainbow(length(all_counts))
+
+# Create the pie chart
+pie(all_counts, labels = names(all_counts), main = "Share of Errors and Placeholders in Location Column", 
+    col = colors, radius = 1)
+
+# Display percentages on the pie chart
+slices <- all_counts / sum(all_counts)
+lbls <- sprintf("%1.1f%%", slices * 100)
+pie(slices, labels = lbls, main = "Share of Errors and Placeholders in Location Column",
+    col = colors, radius = 1)
+
+# Add legend
+legend("topright", legend = names(all_counts), fill = colors, title = "Categories")
+```
+
+## Improved Location Extraction
+
+Here we define a function to improve the extraction of state and district information from the location variable.
+
+```{r}
+# Define the improved location extraction function
+improved_extract_location <- function(location_str) {
+  state <- NA
+  district <- NA
+  
+  # Handle multiple entries in a row, prioritizing 'jurisdiction'
+  if (str_detect(location_str, "\],")) {
+    entries <- unlist(str_split(location_str[2:(nchar(location_str) - 1)], "', '"))
+    jurisdiction_entries <- entries[str_detect(entries, "jurisdiction")]
+    location_str <- if (length(jurisdiction_entries) > 0) jurisdiction_entries[1] else entries[1]
+  }
+  
+  # Use regex to search for state names
+  state_search <- str_match(location_str, "State of (\\w+)|state of (\\w+)|, (\\w+) State|, (\\w+) state|state of (\\w+),|State of (\\w+),|, (\\w+),|jurisdiction is (\\w+)")
+  if (!is.na(state_search[1,])) {
+    state <- na.omit(state_search[1,])[1]
+  }
+  
+  # Use regex to search for district names
+  district_search <- str_match(location_str, "District (\\w+)|district (\\w+)|, (\\w+) District|, (\\w+) district|district of (\\w+),|District of (\\w+),")
+  if (!is.na(district_search[1,])) {
+    district <- na.omit(district_search[1,])[1]
+  }
+  
+  # Handle 'NOT POSSIBLE' or 'ERROR'
+  if (str_detect(location_str, "NOT POSSIBLE") || str_detect(location_str, "ERROR")) {
+    state <- 'Unknown'
+    district <- 'Unknown'
+  }
+  
+  # If both are NA, set them to 'Unknown'
+  if (is.na(state) && is.na(district)) {
+    state <- 'Unknown'
+    district <- 'Unknown'
+  }
+  
+  return(data.frame(state, district))
+}
+
+# Apply the improved function to the data frame
+location_data <- do.call("rbind", lapply(df$location, improved_extract_location))
+```
+
